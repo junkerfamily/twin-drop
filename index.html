@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Twin Drop</title>
+<style>
+  :root {
+    --bg: #12131a;
+    --panel: #1b1d28;
+    --well: #0c0d13;
+    --line: #2a2d3d;
+    --text: #e8e9f0;
+    --dim: #8a8ea6;
+    --accent: #ffb84a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+  }
+  .stage { display: flex; align-items: flex-start; gap: 28px; position: relative; }
+  .side { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  canvas.well {
+    background: var(--well);
+    border: 2px solid var(--line);
+    border-radius: 6px;
+    display: block;
+  }
+  .side.dead canvas.well { border-color: #e2536b; }
+  .keys { display: flex; gap: 8px; }
+  .key {
+    width: 62px; padding: 6px 0 5px; text-align: center;
+    background: var(--panel); border: 1px solid var(--line);
+    border-bottom-width: 3px; border-radius: 6px;
+    transition: transform .05s, background .05s;
+  }
+  .key b { display: block; font-size: 18px; }
+  .key span { font-size: 11px; color: var(--dim); }
+  .key.on { background: #2c3046; transform: translateY(2px); border-bottom-width: 1px; }
+  .hud {
+    width: 150px; display: flex; flex-direction: column; gap: 14px;
+    align-items: stretch; text-align: center; padding-top: 4px;
+  }
+  h1 { margin: 0; font-size: 20px; letter-spacing: 3px; color: var(--accent); }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .stat label { display: block; font-size: 11px; color: var(--dim); letter-spacing: 1px; }
+  .stat div { font-size: 22px; }
+  .nexts { display: flex; gap: 8px; }
+  .nexts .stat { flex: 1; padding: 6px 2px; }
+  .nexts canvas { display: block; margin: 2px auto 0; }
+  .help { font-size: 11px; color: var(--dim); }
+  .overlay {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(12, 13, 19, .78); border-radius: 8px; text-align: center;
+  }
+  .overlay.hidden { display: none; }
+  .overlay .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 26px 34px; }
+  .overlay h2 { margin: 0 0 8px; color: var(--accent); letter-spacing: 2px; }
+  .overlay p { margin: 6px 0; color: var(--dim); }
+  .overlay p strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="side" id="sideL">
+    <canvas class="well" id="wellL" width="280" height="560"></canvas>
+    <div class="keys">
+      <div class="key" data-code="KeyZ"><b>Z</b><span>left</span></div>
+      <div class="key" data-code="KeyX"><b>X</b><span>rotate</span></div>
+      <div class="key" data-code="KeyC"><b>C</b><span>right</span></div>
+    </div>
+  </div>
+
+  <div class="hud">
+    <h1>TWIN DROP</h1>
+    <div class="stat"><label>SCORE</label><div id="score">0</div></div>
+    <div class="stat"><label>LINES</label><div id="lines">0</div></div>
+    <div class="stat"><label>LEVEL</label><div id="level">1</div></div>
+    <div class="stat"><label>BEST</label><div id="best">0</div></div>
+    <div class="nexts">
+      <div class="stat"><label>NEXT L</label><canvas id="nextL" width="56" height="56"></canvas></div>
+      <div class="stat"><label>NEXT R</label><canvas id="nextR" width="56" height="56"></canvas></div>
+    </div>
+    <div class="help">hold left + rotate<br>= rotate the other way<br><br>P pause</div>
+  </div>
+
+  <div class="side" id="sideR">
+    <canvas class="well" id="wellR" width="280" height="560"></canvas>
+    <div class="keys">
+      <div class="key" data-code="Comma"><b>&lt;</b><span>left</span></div>
+      <div class="key" data-code="Period"><b>&gt;</b><span>rotate</span></div>
+      <div class="key" data-code="Slash"><b>/</b><span>right</span></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="box">
+      <h2 id="ovTitle">TWIN DROP</h2>
+      <p id="ovMsg">Two wells. One brain. Either one tops out, it's over.</p>
+      <p><strong>Z X C</strong> left well &nbsp;·&nbsp; <strong>&lt; &gt; /</strong> right well</p>
+      <p>Press <strong>Space</strong> to <span id="ovAction">start</span></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const COLS = 10, ROWS = 20, CELL = 28;
+  const CHORD_MS = 70;      // left+rotate pressed within this window count as "together"
+  const DAS_MS = 180;       // hold delay before auto-repeat
+  const ARR_MS = 50;        // auto-repeat rate
+
+  const PIECES = [
+    { color: '#4ad6c8', m: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]] },
+    { color: '#ffb84a', m: [[1,1],[1,1]] },
+    { color: '#b07cff', m: [[0,1,0],[1,1,1],[0,0,0]] },
+    { color: '#7ddc5a', m: [[0,1,1],[1,1,0],[0,0,0]] },
+    { color: '#ff6b81', m: [[1,1,0],[0,1,1],[0,0,0]] },
+    { color: '#5a9bff', m: [[1,0,0],[1,1,1],[0,0,0]] },
+    { color: '#ff8f4a', m: [[0,0,1],[1,1,1],[0,0,0]] },
+  ];
+
+  const rotateM = (m, dir) => {
+    const n = m.length;
+    const out = m.map(r => r.slice());
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++)
+        if (dir > 0) out[c][n - 1 - r] = m[r][c];
+        else out[n - 1 - c][r] = m[r][c];
+    return out;
+  };
+
+  const game = { running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
+  const best = () => { try { return +localStorage.getItem('twindrop.best') || 0; } catch { return 0; } };
+  const interval = () => Math.max(110, 760 - (game.level - 1) * 65);
+
+  class Well {
+    constructor(canvas, nextCanvas, sideEl, keys) {
+      this.ctx = canvas.getContext('2d');
+      this.nctx = nextCanvas.getContext('2d');
+      this.sideEl = sideEl;
+      this.keys = keys; // {left, rot, right}
+      this.reset(0);
+    }
+    reset(phase) {
+      this.grid = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+      this.bag = [];
+      this.dead = false;
+      this.held = { left: false, right: false };
+      this.das = 0; this.arr = 0;
+      this.acc = phase;
+      this.pid = 0;
+      this.lastLeft = { t: -1e9 }; this.lastRot = { t: -1e9 };
+      this.sideEl.classList.remove('dead');
+      this.next = this.draw();
+      this.spawn();
+    }
+    draw() {
+      if (!this.bag.length) {
+        this.bag = PIECES.map((_, i) => i);
+        for (let i = this.bag.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [this.bag[i], this.bag[j]] = [this.bag[j], this.bag[i]];
+        }
+      }
+      return PIECES[this.bag.pop()];
+    }
+    spawn() {
+      const p = this.next;
+      this.next = this.draw();
+      this.piece = { m: p.m, color: p.color, x: Math.floor((COLS - p.m.length) / 2), y: p.m.length === 4 ? -1 : 0 };
+      this.pid++;
+      if (this.hits(this.piece.m, this.piece.x, this.piece.y)) this.die();
+    }
+    die() { this.dead = true; this.sideEl.classList.add('dead'); }
+    hits(m, x, y) {
+      for (let r = 0; r < m.length; r++)
+        for (let c = 0; c < m.length; c++) {
+          if (!m[r][c]) continue;
+          const gx = x + c, gy = y + r;
+          if (gx < 0 || gx >= COLS || gy >= ROWS) return true;
+          if (gy >= 0 && this.grid[gy][gx]) return true;
+        }
+      return false;
+    }
+    move(dx) {
+      const p = this.piece;
+      if (this.hits(p.m, p.x + dx, p.y)) return false;
+      p.x += dx; return true;
+    }
+    rotate(dir) {
+      const p = this.piece;
+      const m = rotateM(p.m, dir);
+      for (const [dx, dy] of [[0,0],[-1,0],[1,0],[-2,0],[2,0],[0,-1]]) {
+        if (!this.hits(m, p.x + dx, p.y + dy)) { p.m = m; p.x += dx; p.y += dy; return true; }
+      }
+      return false;
+    }
+    snap() { return { m: this.piece.m, x: this.piece.x, pid: this.pid }; }
+    restore(s) {
+      if (s.pid !== this.pid) return;
+      if (!this.hits(s.m, s.x, this.piece.y)) { this.piece.m = s.m; this.piece.x = s.x; }
+    }
+    // --- input ---
+    down(action, now) {
+      if (this.dead) return;
+      if (action === 'left') {
+        this.held.left = true; this.das = 0; this.arr = 0;
+        if (now - this.lastRot.t < CHORD_MS) {
+          // rotate landed a hair before left: redo it as a counter-clockwise turn
+          this.restore(this.lastRot.snap);
+          this.rotate(-1);
+          this.lastRot.t = -1e9;
+        } else {
+          this.lastLeft = { t: now, snap: this.snap() };
+          this.move(-1);
+        }
+      } else if (action === 'right') {
+        this.held.right = true; this.das = 0; this.arr = 0;
+        this.move(1);
+      } else if (action === 'rot') {
+        if (this.held.left) {
+          // left landed a hair before rotate: take back the nudge
+          if (now - this.lastLeft.t < CHORD_MS) this.restore(this.lastLeft.snap);
+          this.lastLeft.t = -1e9;
+          this.rotate(-1);
+        } else {
+          this.lastRot = { t: now, snap: this.snap() };
+          this.rotate(1);
+        }
+      }
+    }
+    up(action) {
+      if (action === 'left') this.held.left = false;
+      if (action === 'right') this.held.right = false;
+      this.das = 0; this.arr = 0;
+    }
+    // --- simulation ---
+    update(dt) {
+      if (this.dead) return;
+      const dir = (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
+      if (dir) {
+        this.das += dt;
+        if (this.das >= DAS_MS) {
+          this.arr += dt;
+          while (this.arr >= ARR_MS) { this.arr -= ARR_MS; this.move(dir); }
+        }
+      }
+      this.acc += dt;
+      const iv = interval();
+      while (this.acc >= iv && !this.dead) { this.acc -= iv; this.step(); }
+    }
+    step() {
+      const p = this.piece;
+      if (!this.hits(p.m, p.x, p.y + 1)) { p.y++; return; }
+      // lock
+      for (let r = 0; r < p.m.length; r++)
+        for (let c = 0; c < p.m.length; c++)
+          if (p.m[r][c]) {
+            if (p.y + r < 0) { this.die(); return; }
+            this.grid[p.y + r][p.x + c] = p.color;
+          }
+      let cleared = 0;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (this.grid[r].every(Boolean)) {
+          this.grid.splice(r, 1);
+          this.grid.unshift(Array(COLS).fill(null));
+          cleared++; r++;
+        }
+      }
+      if (cleared) {
+        game.score += [0, 100, 300, 500, 800][cleared] * game.level;
+        game.lines += cleared;
+        game.level = Math.floor(game.lines / 10) + 1;
+      }
+      this.spawn();
+    }
+    // --- drawing ---
+    cell(ctx, x, y, color, size, alpha = 1) {
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x + 1.5, y + 1.5, size - 3, size - 3, 4);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.22)';
+      ctx.fillRect(x + 5, y + 4, size - 10, 3);
+      ctx.globalAlpha = 1;
+    }
+    render() {
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL);
+      ctx.fillStyle = 'rgba(255,255,255,.035)';
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          ctx.fillRect(c * CELL + CELL / 2 - 1, r * CELL + CELL / 2 - 1, 2, 2);
+      const fade = this.dead ? 0.35 : 1;
+      for (let r = 0; r < ROWS; r++)
+        for (let c = 0; c < COLS; c++)
+          if (this.grid[r][c]) this.cell(ctx, c * CELL, r * CELL, this.grid[r][c], CELL, fade);
+      const p = this.piece;
+      if (p && !this.dead) {
+        let gy = p.y;
+        while (!this.hits(p.m, p.x, gy + 1)) gy++;
+        for (let r = 0; r < p.m.length; r++)
+          for (let c = 0; c < p.m.length; c++)
+            if (p.m[r][c]) {
+              if (gy !== p.y) {
+                ctx.strokeStyle = p.color; ctx.globalAlpha = .35; ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.roundRect((p.x + c) * CELL + 3, (gy + r) * CELL + 3, CELL - 6, CELL - 6, 4);
+                ctx.stroke(); ctx.globalAlpha = 1;
+              }
+              this.cell(ctx, (p.x + c) * CELL, (p.y + r) * CELL, p.color, CELL);
+            }
+      }
+      // next preview
+      const n = this.nctx, s = 13, m = this.next.m;
+      n.clearRect(0, 0, 56, 56);
+      let minR = 9, maxR = -1, minC = 9, maxC = -1;
+      m.forEach((row, r) => row.forEach((v, c) => { if (v) { minR = Math.min(minR, r); maxR = Math.max(maxR, r); minC = Math.min(minC, c); maxC = Math.max(maxC, c); } }));
+      const ox = (56 - (maxC - minC + 1) * s) / 2, oy = (56 - (maxR - minR + 1) * s) / 2;
+      m.forEach((row, r) => row.forEach((v, c) => { if (v) this.cell(n, ox + (c - minC) * s, oy + (r - minR) * s, this.next.color, s); }));
+    }
+  }
+
+  const $ = id => document.getElementById(id);
+  const wells = [
+    new Well($('wellL'), $('nextL'), $('sideL'), { KeyZ: 'left', KeyX: 'rot', KeyC: 'right' }),
+    new Well($('wellR'), $('nextR'), $('sideR'), { Comma: 'left', Period: 'rot', Slash: 'right' }),
+  ];
+  const keyEls = {};
+  document.querySelectorAll('.key').forEach(el => keyEls[el.dataset.code] = el);
+
+  const showOverlay = (title, msg, action) => {
+    $('ovTitle').textContent = title; $('ovMsg').textContent = msg; $('ovAction').textContent = action;
+    $('overlay').classList.remove('hidden');
+  };
+
+  function start() {
+    Object.assign(game, { running: true, paused: false, over: false, score: 0, lines: 0, level: 1 });
+    wells[0].reset(0);
+    wells[1].reset(interval() / 2); // stagger the two wells so they don't tick in unison
+    $('overlay').classList.add('hidden');
+  }
+  function end() {
+    game.running = false; game.over = true;
+    if (game.score > best()) { try { localStorage.setItem('twindrop.best', game.score); } catch {} }
+    const which = wells[0].dead && wells[1].dead ? 'Both wells' : wells[0].dead ? 'Left well' : 'Right well';
+    showOverlay('GAME OVER', `${which} topped out — ${game.score} points, ${game.lines} lines.`, 'play again');
+  }
+
+  addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      if (!game.running) start();
+      else if (game.paused) { game.paused = false; $('overlay').classList.add('hidden'); }
+      return;
+    }
+    if (e.code === 'KeyP' && game.running) {
+      game.paused = !game.paused;
+      if (game.paused) showOverlay('PAUSED', 'Take a breath.', 'resume');
+      else $('overlay').classList.add('hidden');
+      return;
+    }
+    for (const w of wells) {
+      const action = w.keys[e.code];
+      if (!action) continue;
+      e.preventDefault(); // "/" opens quick-find in some browsers
+      keyEls[e.code]?.classList.add('on');
+      if (e.repeat || !game.running || game.paused) return;
+      w.down(action, performance.now());
+    }
+  });
+  addEventListener('keyup', e => {
+    for (const w of wells) {
+      const action = w.keys[e.code];
+      if (!action) continue;
+      keyEls[e.code]?.classList.remove('on');
+      w.up(action);
+    }
+  });
+  addEventListener('blur', () => {
+    wells.forEach(w => { w.held.left = w.held.right = false; });
+    Object.values(keyEls).forEach(el => el.classList.remove('on'));
+    if (game.running && !game.paused) { game.paused = true; showOverlay('PAUSED', 'Take a breath.', 'resume'); }
+  });
+
+  const fit = () => {
+    document.querySelector('.stage').style.zoom = Math.min(1, innerWidth / 800, innerHeight / 680);
+  };
+  addEventListener('resize', fit); fit();
+
+  let last = performance.now();
+  function frame(now) {
+    const dt = Math.min(now - last, 100);
+    last = now;
+    if (game.running && !game.paused) {
+      wells.forEach(w => w.update(dt));
+      if (wells.some(w => w.dead)) end();
+    }
+    wells.forEach(w => w.render());
+    $('score').textContent = game.score;
+    $('lines').textContent = game.lines;
+    $('level').textContent = game.level;
+    $('best').textContent = Math.max(best(), game.score);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
