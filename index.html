@@ -72,10 +72,10 @@
   <div class="side" id="sideL">
     <canvas class="well" id="wellL" width="280" height="560"></canvas>
     <div class="keys">
-      <div class="key" data-code="KeyZ"><b>Z</b><span>left</span></div>
-      <div class="key" data-code="KeyX"><b>X</b><span>rotate</span></div>
-      <div class="key" data-code="KeyC"><b>C</b><span>right</span></div>
-      <div class="key" data-code="KeyV"><b>V</b><span>drop</span></div>
+      <div class="key" data-code="KeyA"><b>A</b><span>left</span></div>
+      <div class="key" data-code="KeyS"><b>S</b><span>rotate</span></div>
+      <div class="key" data-code="KeyD"><b>D</b><span>right</span></div>
+      <div class="key" data-code="KeyF"><b>F</b><span>drop</span></div>
     </div>
   </div>
 
@@ -89,16 +89,16 @@
       <div class="stat"><label>NEXT L</label><canvas id="nextL" width="56" height="56"></canvas></div>
       <div class="stat"><label>NEXT R</label><canvas id="nextR" width="56" height="56"></canvas></div>
     </div>
-    <div class="help">hold rotate, or<br>hold V / M<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause</div>
+    <div class="help">hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause</div>
   </div>
 
   <div class="side" id="sideR">
     <canvas class="well" id="wellR" width="280" height="560"></canvas>
     <div class="keys">
-      <div class="key" data-code="Comma"><b>&lt;</b><span>left</span></div>
-      <div class="key" data-code="Period"><b>&gt;</b><span>rotate</span></div>
-      <div class="key" data-code="Slash"><b>/</b><span>right</span></div>
-      <div class="key" data-code="KeyM"><b>M</b><span>drop</span></div>
+      <div class="key" data-code="KeyJ"><b>J</b><span>left</span></div>
+      <div class="key" data-code="KeyK"><b>K</b><span>rotate</span></div>
+      <div class="key" data-code="KeyL"><b>L</b><span>right</span></div>
+      <div class="key" data-code="Semicolon"><b>;</b><span>drop</span></div>
     </div>
   </div>
 
@@ -106,7 +106,7 @@
     <div class="box">
       <h2 id="ovTitle">TWIN DROP</h2>
       <p id="ovMsg">Two wells. One brain. Either one tops out, it's over.</p>
-      <p><strong>Z X C</strong> left well &nbsp;·&nbsp; <strong>&lt; &gt; /</strong> right well</p>
+      <p><strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well</p>
       <p>Press <strong>Space</strong> to <span id="ovAction">start</span></p>
     </div>
   </div>
@@ -352,8 +352,8 @@
 
   const $ = id => document.getElementById(id);
   const wells = [
-    new Well($('wellL'), $('nextL'), $('sideL'), { KeyZ: 'left', KeyX: 'rot', KeyC: 'right', KeyV: 'drop' }),
-    new Well($('wellR'), $('nextR'), $('sideR'), { Comma: 'left', Period: 'rot', Slash: 'right', KeyM: 'drop' }),
+    new Well($('wellL'), $('nextL'), $('sideL'), { KeyA: 'left', KeyS: 'rot', KeyD: 'right', KeyF: 'drop' }),
+    new Well($('wellR'), $('nextR'), $('sideR'), { KeyJ: 'left', KeyK: 'rot', KeyL: 'right', Semicolon: 'drop' }),
   ];
   const keyEls = {};
   document.querySelectorAll('.key').forEach(el => keyEls[el.dataset.code] = el);
