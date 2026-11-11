@@ -58,6 +58,8 @@
   .help { font-size: 11px; color: var(--dim); }
   .tag { display: none; font-size: 12px; letter-spacing: 2px; color: var(--accent); }
   .music .tag { display: block; }
+  #trainTag { display: none !important; margin: -6px 0; }
+  .music.training #trainTag { display: block !important; }
   .music .nexts { display: none; }
   .keys.sm { gap: 4px; }
   .keys.sm .key { width: 36px; }
@@ -89,6 +91,7 @@
 
   <div class="hud">
     <h1>TWIN DROP</h1>
+    <div class="tag" id="trainTag">TRAINING</div>
     <div class="stat"><label>SCORE</label><div id="score">0</div></div>
     <div class="stat"><label id="linesLabel">LINES</label><div id="lines">0</div></div>
     <div class="stat"><label>LEVEL</label><div id="level">1</div></div>
@@ -366,6 +369,21 @@
   const MCOLS = 5, MROWS = 10, MSZ = 56;
   const LETTERS = 'CDEFGAB';
   const NOTE_CODES = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyD: 'D', KeyE: 'E', KeyF: 'F', KeyG: 'G' };
+  let training = false; // T toggles: print the letter inside each notehead
+  let audio = null;
+  const tone = (freq, dur = 0.55, type = 'triangle', vol = 0.22) => {
+    try {
+      audio = audio || new AudioContext();
+      if (audio.state === 'suspended') audio.resume();
+      const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+      o.type = type; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g).connect(audio.destination);
+      o.start(t); o.stop(t + dur + 0.02);
+    } catch {}
+  };
   const earn = pts => {
     game.score = Math.max(0, game.score + pts);
     if (pts > 0) { game.lines++; game.level = Math.floor(game.lines / 10) + 1; }
@@ -386,6 +404,10 @@
       this.fx = []; this.dead = false;
       this.sideEl.classList.remove('dead');
       this.spawn();
+    }
+    pitch(step) { // real frequency of the note, so bass plays low and treble plays high
+      const idx = this.bottomIdx + step, midi = 12 * (Math.floor(idx / 7) + 1) + [0, 2, 4, 5, 7, 9, 11][((idx % 7) + 7) % 7];
+      return 440 * Math.pow(2, (midi - 69) / 12);
     }
     letterOf(step) { return LETTERS[(((this.bottomIdx + step) % 7) + 7) % 7]; }
     die() { this.dead = true; this.sideEl.classList.add('dead'); }
@@ -421,6 +443,7 @@
         // live block: worth more the higher up you catch it
         earn(Math.round((10 + (MROWS - p.y)) * game.level));
         this.fx.push({ x: p.col * MSZ + MSZ / 2, y: p.y * MSZ + MSZ / 2, text: letter, color: '#7ddc5a', t: 0 });
+        tone(this.pitch(p.step));
         this.piece = null; this.wait = 180;
         return;
       }
@@ -430,6 +453,7 @@
           if (cell && this.letterOf(cell.step) === letter) {
             earn(5 * game.level);
             this.fx.push({ x: c * MSZ + MSZ / 2, y: r * MSZ + MSZ / 2, text: letter, color: '#ffb84a', t: 0 });
+            tone(this.pitch(cell.step), 0.45, 'triangle', 0.15);
             for (let k = r; k > 0; k--) this.grid[k][c] = this.grid[k - 1][c];
             this.grid[0][c] = null;
             return;
@@ -437,6 +461,7 @@
         }
       // wrong guess: costs points and the live block jolts down a row
       earn(-10);
+      tone(110, 0.18, 'sawtooth', 0.08);
       this.fx.push({ x: MCOLS * MSZ / 2, y: MROWS * MSZ / 2, text: letter, color: '#e2536b', t: 0, big: true });
       if (p) p.y += 1;
     }
@@ -481,15 +506,21 @@
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
       if (this.clef === 'treble') ctx.fillText('\u{1D11E}', x + 6, sy(0) + 3);
       else ctx.fillText('\u{1D122}', x + 6, sy(8) + 6);
-      const nx = x + 38, ny = sy(step);
+      const nx = x + (training ? 36 : 38), ny = sy(step);
       ctx.beginPath();
-      if (step <= -2 || step >= 10) { ctx.moveTo(nx - 9, ny); ctx.lineTo(nx + 9, ny); }
+      if (step <= -2 || step >= 10) { ctx.moveTo(nx - 12, ny); ctx.lineTo(nx + 12, ny); }
       ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(nx, ny, 5.5, 4, -0.35, 0, Math.PI * 2); ctx.fill();
+      const rx = training ? 8 : 5.5, ry = training ? 6.5 : 4, sx = rx - 0.5;
+      ctx.beginPath(); ctx.ellipse(nx, ny, rx, ry, training ? 0 : -0.35, 0, Math.PI * 2); ctx.fill();
       ctx.lineWidth = 1.5; ctx.beginPath();
-      if (step < 4) { ctx.moveTo(nx + 5, ny - 1); ctx.lineTo(nx + 5, ny - 20); }
-      else { ctx.moveTo(nx - 5, ny + 1); ctx.lineTo(nx - 5, ny + 20); }
+      if (step < 4) { ctx.moveTo(nx + sx, ny - 1); ctx.lineTo(nx + sx, ny - 20); }
+      else { ctx.moveTo(nx - sx, ny + 1); ctx.lineTo(nx - sx, ny + 20); }
       ctx.stroke();
+      if (training) {
+        ctx.fillStyle = '#ffb84a'; ctx.font = 'bold 11px ui-monospace, Menlo, monospace';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(this.letterOf(step), nx, ny + 0.5);
+      }
       ctx.globalAlpha = 1;
     }
     render() {
@@ -545,11 +576,11 @@
   };
   const HELP = {
     blocks: 'hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause',
-    music: 'type the note name<br>before it lands<br><br>wrong key = −10<br>and the block jolts<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
+    music: 'type the note name<br>before it lands<br><br>T = training<br>(letters on notes)<br><br>wrong key = −10<br>and the block jolts<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
   };
   const OVKEYS = {
     blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
-    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster',
+    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster<br><strong>T</strong> training mode (letters on the notes)',
   };
   const OVMSG = {
     blocks: "Two wells. One brain. Either one tops out, it's over.",
@@ -631,6 +662,11 @@
       game.paused = !game.paused;
       if (game.paused) showOverlay('PAUSED', 'Take a breath.', 'resume');
       else $('overlay').classList.add('hidden');
+      return;
+    }
+    if (game.mode === 'music' && e.code === 'KeyT') {
+      e.preventDefault();
+      if (!e.repeat) { training = !training; document.querySelector('.stage').classList.toggle('training', training); }
       return;
     }
     if (game.mode === 'music') { musicKey(e, true); return; }
