@@ -447,10 +447,11 @@
         this.piece = null; this.wait = 180;
         return;
       }
+      // landed cards: only the one on top of each column can be peeled off
       for (let r = 0; r < MROWS; r++)
         for (let c = 0; c < MCOLS; c++) {
           const cell = this.grid[r][c];
-          if (cell && this.letterOf(cell.step) === letter) {
+          if (cell && (r === 0 || !this.grid[r - 1][c]) && this.letterOf(cell.step) === letter) {
             earn(5 * game.level);
             this.fx.push({ x: c * MSZ + MSZ / 2, y: r * MSZ + MSZ / 2, text: letter, color: '#ffb84a', t: 0 });
             tone(this.pitch(cell.step), 0.45, 'triangle', 0.15);
@@ -538,7 +539,7 @@
       const fade = this.dead ? 0.4 : 1;
       for (let r = 0; r < MROWS; r++)
         for (let c = 0; c < MCOLS; c++)
-          if (this.grid[r][c]) this.card(ctx, c * MSZ, r * MSZ, this.grid[r][c].step, { alpha: fade });
+          if (this.grid[r][c]) this.card(ctx, c * MSZ, r * MSZ, this.grid[r][c].step, { alpha: fade * (r > 0 && this.grid[r - 1][c] ? 0.55 : 1) });
       if (p && !this.dead) this.card(ctx, p.col * MSZ, p.y * MSZ, p.step, { active: true });
       ctx.font = 'bold 22px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       for (const f of this.fx) {
@@ -576,7 +577,7 @@
   };
   const HELP = {
     blocks: 'hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause',
-    music: 'type the note name<br>before it lands<br><br>T = training<br>(letters on notes)<br><br>wrong key = −10<br>and the block jolts<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
+    music: 'type the note name<br>before it lands<br><br>T = training<br>(letters on notes)<br><br>wrong key = −10<br>and the block jolts<br><br>stacked notes: only the<br>top of a pile can be<br>peeled off<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
   };
   const OVKEYS = {
     blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
