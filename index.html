@@ -56,6 +56,18 @@
   .nexts .stat { flex: 1; padding: 6px 2px; }
   .nexts canvas { display: block; margin: 2px auto 0; }
   .help { font-size: 11px; color: var(--dim); }
+  .tag { display: none; font-size: 12px; letter-spacing: 2px; color: var(--accent); }
+  .music .tag { display: block; }
+  .music .nexts { display: none; }
+  .keys.sm { gap: 4px; }
+  .keys.sm .key { width: 36px; }
+  .keys.sm .key.wide { width: 74px; }
+  .modes { display: flex; gap: 8px; justify-content: center; margin: 12px 0 4px; }
+  .modes button {
+    font: inherit; color: var(--dim); background: var(--well); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 14px; cursor: pointer;
+  }
+  .modes button.sel { color: var(--bg); background: var(--accent); border-color: var(--accent); }
   .overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(12, 13, 19, .78); border-radius: 8px; text-align: center;
@@ -71,42 +83,38 @@
 <div class="stage">
   <div class="side" id="sideL">
     <canvas class="well" id="wellL" width="280" height="560"></canvas>
-    <div class="keys">
-      <div class="key" data-code="KeyA"><b>A</b><span>left</span></div>
-      <div class="key" data-code="KeyS"><b>S</b><span>rotate</span></div>
-      <div class="key" data-code="KeyD"><b>D</b><span>right</span></div>
-      <div class="key" data-code="KeyF"><b>F</b><span>drop</span></div>
-    </div>
+    <div class="tag" id="tagL">𝄢 BASS CLEF</div>
+    <div class="keys" id="keysL"></div>
   </div>
 
   <div class="hud">
     <h1>TWIN DROP</h1>
     <div class="stat"><label>SCORE</label><div id="score">0</div></div>
-    <div class="stat"><label>LINES</label><div id="lines">0</div></div>
+    <div class="stat"><label id="linesLabel">LINES</label><div id="lines">0</div></div>
     <div class="stat"><label>LEVEL</label><div id="level">1</div></div>
     <div class="stat"><label>BEST</label><div id="best">0</div></div>
     <div class="nexts">
       <div class="stat"><label>NEXT L</label><canvas id="nextL" width="56" height="56"></canvas></div>
       <div class="stat"><label>NEXT R</label><canvas id="nextR" width="56" height="56"></canvas></div>
     </div>
-    <div class="help">hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause</div>
+    <div class="help" id="help"></div>
   </div>
 
   <div class="side" id="sideR">
     <canvas class="well" id="wellR" width="280" height="560"></canvas>
-    <div class="keys">
-      <div class="key" data-code="KeyJ"><b>J</b><span>left</span></div>
-      <div class="key" data-code="KeyK"><b>K</b><span>rotate</span></div>
-      <div class="key" data-code="KeyL"><b>L</b><span>right</span></div>
-      <div class="key" data-code="Semicolon"><b>;</b><span>drop</span></div>
-    </div>
+    <div class="tag" id="tagR">𝄞 TREBLE CLEF</div>
+    <div class="keys" id="keysR"></div>
   </div>
 
   <div class="overlay" id="overlay">
     <div class="box">
       <h2 id="ovTitle">TWIN DROP</h2>
       <p id="ovMsg">Two wells. One brain. Either one tops out, it's over.</p>
-      <p><strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well</p>
+      <div class="modes">
+        <button id="modeBlocks" tabindex="-1"><b>1</b> Blocks</button>
+        <button id="modeMusic" tabindex="-1"><b>2</b> Music</button>
+      </div>
+      <p id="ovKeys"></p>
       <p>Press <strong>Space</strong> to <span id="ovAction">start</span></p>
     </div>
   </div>
@@ -141,8 +149,9 @@
     return out;
   };
 
-  const game = { running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
-  const best = () => { try { return +localStorage.getItem('twindrop.best') || 0; } catch { return 0; } };
+  const game = { mode: 'blocks', running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
+  const bestKey = () => game.mode === 'music' ? 'twindrop.best.music' : 'twindrop.best';
+  const best = () => { try { return +localStorage.getItem(bestKey()) || 0; } catch { return 0; } };
   const interval = () => Math.max(110, 760 - (game.level - 1) * 65);
 
   class Well {
@@ -350,13 +359,225 @@
     }
   }
 
+
+  // ---------------- music mode ----------------
+  // Each well is a 5x10 grid of square cards. A card is a tiny staff with one note on it;
+  // type the note's letter name before it lands, or it stacks up.
+  const MCOLS = 5, MROWS = 10, MSZ = 56;
+  const LETTERS = 'CDEFGAB';
+  const NOTE_CODES = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyD: 'D', KeyE: 'E', KeyF: 'F', KeyG: 'G' };
+  const earn = pts => {
+    game.score = Math.max(0, game.score + pts);
+    if (pts > 0) { game.lines++; game.level = Math.floor(game.lines / 10) + 1; }
+  };
+
+  class MusicWell {
+    // step 0 = bottom staff line; each +1 is a line/space up. -2 and 10 sit on ledger lines.
+    constructor(canvas, sideEl, clef) {
+      this.ctx = canvas.getContext('2d');
+      this.sideEl = sideEl;
+      this.clef = clef;
+      this.bottomIdx = clef === 'treble' ? 4 * 7 + 2 : 2 * 7 + 4; // E4 / G2
+      this.reset();
+    }
+    reset() {
+      this.grid = Array.from({ length: MROWS }, () => Array(MCOLS).fill(null));
+      this.piece = null; this.wait = 0; this.soft = false; this.lastStep = null;
+      this.fx = []; this.dead = false;
+      this.sideEl.classList.remove('dead');
+      this.spawn();
+    }
+    letterOf(step) { return LETTERS[(((this.bottomIdx + step) % 7) + 7) % 7]; }
+    die() { this.dead = true; this.sideEl.classList.add('dead'); }
+    spawn() {
+      const free = [];
+      for (let c = 0; c < MCOLS; c++) if (!this.grid[0][c]) free.push(c);
+      if (!free.length) { this.die(); return; }
+      const wide = game.level >= 3; // ledger-line notes join in at level 3
+      const lo = wide ? -2 : 0, hi = wide ? 10 : 8;
+      let step;
+      do { step = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (step === this.lastStep);
+      this.lastStep = step;
+      this.piece = { col: free[Math.floor(Math.random() * free.length)], y: 0, age: 0, step };
+    }
+    floorRow(col, from) {
+      let r = from;
+      while (r + 1 < MROWS && !this.grid[r + 1][col]) r++;
+      return r;
+    }
+    moveCol(dx) {
+      const p = this.piece;
+      if (!p || this.dead) return;
+      const nc = p.col + dx;
+      if (nc < 0 || nc >= MCOLS) return;
+      const r0 = Math.floor(p.y), r1 = Math.min(MROWS - 1, Math.ceil(p.y) + 0);
+      for (let r = r0; r <= r1; r++) if (this.grid[r][nc]) return;
+      p.col = nc;
+    }
+    press(letter) {
+      if (this.dead) return;
+      const p = this.piece;
+      if (p && this.letterOf(p.step) === letter) {
+        // live block: worth more the higher up you catch it
+        earn(Math.round((10 + (MROWS - p.y)) * game.level));
+        this.fx.push({ x: p.col * MSZ + MSZ / 2, y: p.y * MSZ + MSZ / 2, text: letter, color: '#7ddc5a', t: 0 });
+        this.piece = null; this.wait = 180;
+        return;
+      }
+      for (let r = 0; r < MROWS; r++)
+        for (let c = 0; c < MCOLS; c++) {
+          const cell = this.grid[r][c];
+          if (cell && this.letterOf(cell.step) === letter) {
+            earn(5 * game.level);
+            this.fx.push({ x: c * MSZ + MSZ / 2, y: r * MSZ + MSZ / 2, text: letter, color: '#ffb84a', t: 0 });
+            for (let k = r; k > 0; k--) this.grid[k][c] = this.grid[k - 1][c];
+            this.grid[0][c] = null;
+            return;
+          }
+        }
+      // wrong guess: costs points and the live block jolts down a row
+      earn(-10);
+      this.fx.push({ x: MCOLS * MSZ / 2, y: MROWS * MSZ / 2, text: letter, color: '#e2536b', t: 0, big: true });
+      if (p) p.y += 1;
+    }
+    update(dt) {
+      this.fx.forEach(f => f.t += dt);
+      this.fx = this.fx.filter(f => f.t < 600);
+      if (this.dead) return;
+      if (!this.piece) {
+        this.wait -= dt;
+        if (this.wait <= 0) this.spawn();
+        return;
+      }
+      const p = this.piece;
+      p.age += dt / 1000;
+      // float at first, then sink faster the longer you dither
+      const base = 0.55 + 0.07 * (game.level - 1);
+      let v = base * Math.min(4, 1 + p.age * 0.6);
+      if (this.soft) v = Math.max(v, 7);
+      const ny = p.y + v * dt / 1000;
+      const limit = this.floorRow(p.col, Math.floor(p.y));
+      if (ny >= limit) {
+        this.grid[limit][p.col] = { step: p.step };
+        this.piece = null; this.wait = 250;
+      } else p.y = ny;
+    }
+    // --- drawing ---
+    card(ctx, x, y, step, opts = {}) {
+      const { alpha = 1, active = false } = opts;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = active ? '#f6efdc' : '#d9d1ba';
+      ctx.beginPath(); ctx.roundRect(x + 2, y + 2, MSZ - 4, MSZ - 4, 6); ctx.fill();
+      if (active) {
+        ctx.strokeStyle = '#ffb84a'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.roundRect(x + 2, y + 2, MSZ - 4, MSZ - 4, 6); ctx.stroke();
+      }
+      const cy = y + MSZ / 2, sy = s => cy + (4 - s) * 3;
+      ctx.strokeStyle = '#3a3526'; ctx.fillStyle = '#1b1d28'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let s = 0; s <= 8; s += 2) { ctx.moveTo(x + 5, sy(s)); ctx.lineTo(x + MSZ - 5, sy(s)); }
+      ctx.stroke();
+      ctx.font = this.clef === 'treble' ? '34px "Apple Symbols", "Noto Music", serif' : '24px "Apple Symbols", "Noto Music", serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+      if (this.clef === 'treble') ctx.fillText('\u{1D11E}', x + 6, sy(0) + 3);
+      else ctx.fillText('\u{1D122}', x + 6, sy(8) + 6);
+      const nx = x + 38, ny = sy(step);
+      ctx.beginPath();
+      if (step <= -2 || step >= 10) { ctx.moveTo(nx - 9, ny); ctx.lineTo(nx + 9, ny); }
+      ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(nx, ny, 5.5, 4, -0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 1.5; ctx.beginPath();
+      if (step < 4) { ctx.moveTo(nx + 5, ny - 1); ctx.lineTo(nx + 5, ny - 20); }
+      else { ctx.moveTo(nx - 5, ny + 1); ctx.lineTo(nx - 5, ny + 20); }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    render() {
+      const ctx = this.ctx;
+      ctx.clearRect(0, 0, MCOLS * MSZ, MROWS * MSZ);
+      ctx.fillStyle = 'rgba(255,255,255,.035)';
+      for (let c = 1; c < MCOLS; c++) ctx.fillRect(c * MSZ - 0.5, 0, 1, MROWS * MSZ);
+      const p = this.piece;
+      if (p && !this.dead) {
+        const lr = this.floorRow(p.col, Math.floor(p.y));
+        ctx.strokeStyle = 'rgba(255,184,74,.28)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.roundRect(p.col * MSZ + 3, lr * MSZ + 3, MSZ - 6, MSZ - 6, 6); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      const fade = this.dead ? 0.4 : 1;
+      for (let r = 0; r < MROWS; r++)
+        for (let c = 0; c < MCOLS; c++)
+          if (this.grid[r][c]) this.card(ctx, c * MSZ, r * MSZ, this.grid[r][c].step, { alpha: fade });
+      if (p && !this.dead) this.card(ctx, p.col * MSZ, p.y * MSZ, p.step, { active: true });
+      ctx.font = 'bold 22px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (const f of this.fx) {
+        const k = f.t / 600;
+        ctx.globalAlpha = 1 - k; ctx.fillStyle = f.color;
+        ctx.fillText(f.text, f.x, f.y - k * 24);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   const $ = id => document.getElementById(id);
-  const wells = [
+  const blockWells = [
     new Well($('wellL'), $('nextL'), $('sideL'), { KeyA: 'left', KeyS: 'rot', KeyD: 'right', KeyF: 'drop' }),
     new Well($('wellR'), $('nextR'), $('sideR'), { KeyJ: 'left', KeyK: 'rot', KeyL: 'right', Semicolon: 'drop' }),
   ];
-  const keyEls = {};
-  document.querySelectorAll('.key').forEach(el => keyEls[el.dataset.code] = el);
+  const musicWells = [
+    new MusicWell($('wellL'), $('sideL'), 'bass'),
+    new MusicWell($('wellR'), $('sideR'), 'treble'),
+  ];
+  let wells = blockWells;
+  let shiftR = false; // right Shift held: music input goes to the right well
+  let keyEls = {};
+
+  const key = (code, label, sub, cls = '') => `<div class="key ${cls}" data-code="${code}"><b>${label}</b><span>${sub}</span></div>`;
+  const KEYS = {
+    blocks: [
+      key('KeyA', 'A', 'left') + key('KeyS', 'S', 'rotate') + key('KeyD', 'D', 'right') + key('KeyF', 'F', 'drop'),
+      key('KeyJ', 'J', 'left') + key('KeyK', 'K', 'rotate') + key('KeyL', 'L', 'right') + key('Semicolon', ';', 'drop'),
+    ],
+    music: [
+      'ABCDEFG'.split('').map(l => key('Key' + l, l, 'note')).join(''),
+      key('ShiftRight', '⇧', 'hold', 'wide') + key('ArrowLeft', '◀', 'move') + key('ArrowDown', '▼', 'sink') + key('ArrowRight', '▶', 'move'),
+    ],
+  };
+  const HELP = {
+    blocks: 'hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause',
+    music: 'type the note name<br>before it lands<br><br>wrong key = −10<br>and the block jolts<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
+  };
+  const OVKEYS = {
+    blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
+    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster',
+  };
+  const OVMSG = {
+    blocks: "Two wells. One brain. Either one tops out, it's over.",
+    music: 'Bass on the left, treble on the right. Name each note before it lands.',
+  };
+
+  function setMode(m) {
+    game.mode = m;
+    try { localStorage.setItem('twindrop.mode', m); } catch {}
+    wells = m === 'music' ? musicWells : blockWells;
+    document.querySelector('.stage').classList.toggle('music', m === 'music');
+    $('keysL').className = $('keysR').className = 'keys' + (m === 'music' ? ' sm' : '');
+    $('keysL').innerHTML = KEYS[m][0]; $('keysR').innerHTML = KEYS[m][1];
+    keyEls = {};
+    document.querySelectorAll('.key').forEach(el => keyEls[el.dataset.code] = el);
+    $('help').innerHTML = HELP[m];
+    $('ovKeys').innerHTML = OVKEYS[m];
+    $('linesLabel').textContent = m === 'music' ? 'NOTES' : 'LINES';
+    $('modeBlocks').classList.toggle('sel', m === 'blocks');
+    $('modeMusic').classList.toggle('sel', m === 'music');
+    $('wellL').width = $('wellR').width = 280; // resets the canvas state, same size for both modes
+    wells.forEach(w => w.reset(0));
+    if (!game.running) {
+      Object.assign(game, { score: 0, lines: 0, level: 1 });
+      $('ovMsg').textContent = OVMSG[m];
+      $('ovTitle').textContent = 'TWIN DROP';
+    }
+  }
 
   const showOverlay = (title, msg, action) => {
     $('ovTitle').textContent = title; $('ovMsg').textContent = msg; $('ovAction').textContent = action;
@@ -367,13 +588,30 @@
     Object.assign(game, { running: true, paused: false, over: false, score: 0, lines: 0, level: 1 });
     wells[0].reset(0);
     wells[1].reset(interval() / 2); // stagger the two wells so they don't tick in unison
+    shiftR = false;
     $('overlay').classList.add('hidden');
   }
   function end() {
     game.running = false; game.over = true;
-    if (game.score > best()) { try { localStorage.setItem('twindrop.best', game.score); } catch {} }
+    if (game.score > best()) { try { localStorage.setItem(bestKey(), game.score); } catch {} }
     const which = wells[0].dead && wells[1].dead ? 'Both wells' : wells[0].dead ? 'Left well' : 'Right well';
-    showOverlay('GAME OVER', `${which} topped out — ${game.score} points, ${game.lines} lines.`, 'play again');
+    showOverlay('GAME OVER', `${which} ${game.mode === 'music' ? 'filled up' : 'topped out'} — ${game.score} points, ${game.lines} lines.`, 'play again');
+  }
+
+  function musicKey(e, isDown) {
+    const el = keyEls[e.code];
+    const handled = e.code in NOTE_CODES || e.code === 'ShiftRight' || e.code.startsWith('Arrow');
+    if (!handled) return;
+    e.preventDefault();
+    if (el) el.classList.toggle('on', isDown);
+    if (e.code === 'ShiftRight') { shiftR = isDown; return; }
+    if (!isDown) { if (e.code === 'ArrowDown') musicWells.forEach(w => { w.soft = false; }); return; }
+    if (!game.running || game.paused) return;
+    const w = musicWells[shiftR ? 1 : 0];
+    if (e.code in NOTE_CODES) { if (!e.repeat) w.press(NOTE_CODES[e.code]); }
+    else if (e.code === 'ArrowLeft') w.moveCol(-1);
+    else if (e.code === 'ArrowRight') w.moveCol(1);
+    else if (e.code === 'ArrowDown') w.soft = true;
   }
 
   addEventListener('keydown', e => {
@@ -384,12 +622,18 @@
       else if (game.paused) { game.paused = false; $('overlay').classList.add('hidden'); }
       return;
     }
+    if (!game.running && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Tab')) {
+      e.preventDefault();
+      setMode(e.code === 'Digit1' ? 'blocks' : e.code === 'Digit2' ? 'music' : game.mode === 'music' ? 'blocks' : 'music');
+      return;
+    }
     if (e.code === 'KeyP' && game.running) {
       game.paused = !game.paused;
       if (game.paused) showOverlay('PAUSED', 'Take a breath.', 'resume');
       else $('overlay').classList.add('hidden');
       return;
     }
+    if (game.mode === 'music') { musicKey(e, true); return; }
     for (const w of wells) {
       const action = w.keys[e.code];
       if (!action) continue;
@@ -400,6 +644,7 @@
     }
   });
   addEventListener('keyup', e => {
+    if (game.mode === 'music') { musicKey(e, false); return; }
     for (const w of wells) {
       const action = w.keys[e.code];
       if (!action) continue;
@@ -408,7 +653,9 @@
     }
   });
   addEventListener('blur', () => {
-    wells.forEach(w => { w.held.left = w.held.right = w.rotHeld = w.dropping = false; });
+    blockWells.forEach(w => { w.held.left = w.held.right = w.rotHeld = w.dropping = false; });
+    musicWells.forEach(w => { w.soft = false; });
+    shiftR = false;
     Object.values(keyEls).forEach(el => el.classList.remove('on'));
     if (game.running && !game.paused) { game.paused = true; showOverlay('PAUSED', 'Take a breath.', 'resume'); }
   });
@@ -417,6 +664,15 @@
     document.querySelector('.stage').style.zoom = Math.min(1, innerWidth / 800, innerHeight / 680);
   };
   addEventListener('resize', fit); fit();
+
+  const pick = m => e => { e.preventDefault(); if (!game.running) setMode(m); };
+  for (const [id, m] of [['modeBlocks', 'blocks'], ['modeMusic', 'music']]) {
+    $(id).addEventListener('mousedown', e => e.preventDefault()); // keep focus off buttons so Space still starts
+    $(id).addEventListener('click', pick(m));
+  }
+  let saved = 'blocks';
+  try { saved = localStorage.getItem('twindrop.mode') === 'music' ? 'music' : 'blocks'; } catch {}
+  setMode(saved);
 
   let last = performance.now();
   function frame(now) {
