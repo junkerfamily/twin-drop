@@ -70,9 +70,6 @@
     border-radius: 6px; padding: 6px 14px; cursor: pointer;
   }
   .modes button.sel { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-  .songs { flex-wrap: wrap; max-width: 520px; margin: 6px auto 0; display: none; }
-  .music-ov .songs { display: flex; }
-  .songs button { font-size: 12px; padding: 4px 10px; }
   .overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(12, 13, 19, .78); border-radius: 8px; text-align: center;
@@ -120,7 +117,6 @@
         <button id="modeBlocks" tabindex="-1"><b>1</b> Blocks</button>
         <button id="modeMusic" tabindex="-1"><b>2</b> Music</button>
       </div>
-      <div class="modes songs" id="songs"></div>
       <p id="ovKeys"></p>
       <p>Press <strong>Space</strong> to <span id="ovAction">start</span></p>
     </div>
@@ -157,7 +153,7 @@
   };
 
   const game = { mode: 'blocks', running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
-  const bestKey = () => game.mode === 'music' ? 'twindrop.best.music' + (songSel ? '.' + songSel.id : '') : 'twindrop.best';
+  const bestKey = () => game.mode === 'music' ? 'twindrop.best.music' : 'twindrop.best';
   const best = () => { try { return +localStorage.getItem(bestKey()) || 0; } catch { return 0; } };
   const interval = () => Math.max(110, 760 - (game.level - 1) * 65);
 
@@ -373,32 +369,6 @@
   const MCOLS = 5, MROWS = 10, MSZ = 56;
   const LETTERS = 'CDEFGAB';
   const NOTE_CODES = { KeyA: 'A', KeyB: 'B', KeyC: 'C', KeyD: 'D', KeyE: 'E', KeyF: 'F', KeyG: 'G' };
-  // Songs: one line per clef, "Note+octave:beats" tokens (R = rest). Bass clef bottom line is G2,
-  // treble is E4. Each note spawns on its beat and falls to land just as the next one is due;
-  // a note you miss stacks up and the song carries on regardless.
-  const SONGS = [
-    { id: 'ode', name: 'Ode to Joy', beat: 2200,
-      treble: 'E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1 E4:2 D4:2 | E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1 D4:2 C4:2',
-      bass: 'C3:2 G2:2 G2:2 C3:2 C3:2 G2:2 G2:4 | C3:2 G2:2 G2:2 C3:2 C3:2 G2:2 C3:4' },
-    { id: 'twinkle', name: 'Twinkle Twinkle', beat: 2000,
-      treble: 'C4:1 C4:1 G4:1 G4:1 A4:1 A4:1 G4:2 | F4:1 F4:1 E4:1 E4:1 D4:1 D4:1 C4:2 | G4:1 G4:1 F4:1 F4:1 E4:1 E4:1 D4:2 | C4:1 C4:1 G4:1 G4:1 A4:1 A4:1 G4:2 | F4:1 F4:1 E4:1 E4:1 D4:1 D4:1 C4:2',
-      bass: 'C3:4 F3:4 F3:4 G2:2 C3:2 C3:4 C3:2 G2:2 C3:4 F3:4 F3:4 G2:2 C3:2' },
-    { id: 'mary', name: 'Mary Had a Little Lamb', beat: 2200,
-      treble: 'E4:1 D4:1 C4:1 D4:1 E4:1 E4:1 E4:2 D4:1 D4:1 D4:2 E4:1 G4:1 G4:2 E4:1 D4:1 C4:1 D4:1 E4:1 E4:1 E4:1 E4:1 D4:1 D4:1 E4:1 D4:1 C4:4',
-      bass: 'C3:4 C3:4 G2:4 C3:4 C3:4 C3:4 G2:4 C3:4' },
-    { id: 'jingle', name: 'Jingle Bells', beat: 2000,
-      treble: 'E4:1 E4:1 E4:2 E4:1 E4:1 E4:2 E4:1 G4:1 C4:1 D4:1 E4:4 F4:1 F4:1 F4:1 F4:1 F4:1 E4:1 E4:1 E4:1 E4:1 D4:1 D4:1 E4:1 D4:2 G4:2',
-      bass: 'C3:4 C3:4 C3:4 C3:4 F3:4 C3:4 G2:4 G2:4' },
-    { id: 'frere', name: 'Frère Jacques (round)', beat: 2400,
-      treble: 'C4:1 D4:1 E4:1 C4:1 C4:1 D4:1 E4:1 C4:1 E4:1 F4:1 G4:2 E4:1 F4:1 G4:2 G4:1 A4:1 G4:1 F4:1 E4:1 C4:1 G4:1 A4:1 G4:1 F4:1 E4:1 C4:1 C4:1 G4:1 C4:2 C4:1 G4:1 C4:2',
-      bass: 'R:4 C3:1 D3:1 E3:1 C3:1 C3:1 D3:1 E3:1 C3:1 E3:1 F3:1 G3:2 E3:1 F3:1 G3:2 G3:1 A3:1 G3:1 F3:1 E3:1 C3:1 G3:1 A3:1 G3:1 F3:1 E3:1 C3:1 C3:1 G2:1 C3:2 C3:1 G2:1 C3:2' },
-  ];
-  const DEG = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
-  const parseLine = (str, bottomIdx) => str.split(/\s+/).filter(t => t && t !== '|').map(t => {
-    const [n, b] = t.split(':');
-    return n === 'R' ? { step: null, beats: +b } : { step: DEG[n[0]] + 7 * +n[1] - bottomIdx, beats: +b };
-  });
-  let songSel = null; // null = random notes, otherwise a SONGS entry
   let training = false; // T toggles: print the letter inside each notehead
   let audio = null;
   const tone = (freq, dur = 0.55, type = 'triangle', vol = 0.22) => {
@@ -433,9 +403,6 @@
       this.piece = null; this.wait = 0; this.soft = false; this.lastStep = null;
       this.fx = []; this.dead = false;
       this.sideEl.classList.remove('dead');
-      this.notes = songSel ? parseLine(songSel[this.clef], this.bottomIdx) : null;
-      this.ni = 0; this.clock = 0; this.nextAt = 800; // a beat of lead-in
-      this.caught = 0; this.total = this.notes ? this.notes.filter(n => n.step !== null).length : 0;
       this.spawn();
     }
     pitch(step) { // real frequency of the note, so bass plays low and treble plays high
@@ -444,26 +411,7 @@
     }
     letterOf(step) { return LETTERS[(((this.bottomIdx + step) % 7) + 7) % 7]; }
     die() { this.dead = true; this.sideEl.classList.add('dead'); }
-    songDone() { return !!this.notes && this.ni >= this.notes.length && !this.piece; }
-    land() { // the live block ran out of time: it stacks where it is
-      const p = this.piece, limit = this.floorRow(p.col, Math.floor(p.y));
-      this.grid[limit][p.col] = { step: p.step };
-      this.piece = null;
-    }
-    songStep() {
-      while (this.ni < this.notes.length && this.clock >= this.nextAt) {
-        const n = this.notes[this.ni++];
-        this.nextAt += n.beats * songSel.beat;
-        if (n.step === null) continue;
-        if (this.piece) this.land();
-        const free = [];
-        for (let c = 0; c < MCOLS; c++) if (!this.grid[0][c]) free.push(c);
-        if (!free.length) { this.die(); return; }
-        this.piece = { col: free[Math.floor(Math.random() * free.length)], y: 0, age: 0, step: n.step, dur: n.beats * songSel.beat / 1000 * 0.92 };
-      }
-    }
     spawn() {
-      if (this.notes) return; // songs spawn from songStep
       const free = [];
       for (let c = 0; c < MCOLS; c++) if (!this.grid[0][c]) free.push(c);
       if (!free.length) { this.die(); return; }
@@ -496,7 +444,6 @@
         earn(Math.round((10 + (MROWS - p.y)) * game.level));
         this.fx.push({ x: p.col * MSZ + MSZ / 2, y: p.y * MSZ + MSZ / 2, text: letter, color: '#7ddc5a', t: 0 });
         tone(this.pitch(p.step));
-        this.caught++;
         this.piece = null; this.wait = 180;
         return;
       }
@@ -523,24 +470,19 @@
       this.fx.forEach(f => f.t += dt);
       this.fx = this.fx.filter(f => f.t < 600);
       if (this.dead) return;
-      if (this.notes) { this.clock += dt; this.songStep(); if (this.dead) return; }
-      else if (!this.piece) {
+      if (!this.piece) {
         this.wait -= dt;
         if (this.wait <= 0) this.spawn();
         return;
       }
       const p = this.piece;
-      if (!p) return;
       p.age += dt / 1000;
-      const limit = this.floorRow(p.col, Math.floor(p.y));
-      let v;
-      if (this.notes) v = (limit - p.y) / Math.max(0.05, p.dur - p.age); // arrive as the next note is due
-      else { // float at first, then sink faster the longer you dither
-        const base = 0.55 + 0.07 * (game.level - 1);
-        v = base * Math.min(4, 1 + p.age * 0.6);
-      }
+      // float at first, then sink faster the longer you dither
+      const base = 0.55 + 0.07 * (game.level - 1);
+      let v = base * Math.min(4, 1 + p.age * 0.6);
       if (this.soft) v = Math.max(v, 7);
       const ny = p.y + v * dt / 1000;
+      const limit = this.floorRow(p.col, Math.floor(p.y));
       if (ny >= limit) {
         this.grid[limit][p.col] = { step: p.step };
         this.piece = null; this.wait = 250;
@@ -639,32 +581,12 @@
   };
   const OVKEYS = {
     blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
-    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster<br><strong>T</strong> training mode (letters on the notes)<br>on this menu <strong>◀ ▶</strong> picks the song',
+    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster<br><strong>T</strong> training mode (letters on the notes)',
   };
   const OVMSG = {
     blocks: "Two wells. One brain. Either one tops out, it's over.",
     music: 'Bass on the left, treble on the right. Name each note before it lands.',
   };
-
-  const ovMsg = () => game.mode === 'music' && songSel
-    ? `Play “${songSel.name}” — bass on the left, treble on the right. Miss a note and the song carries on.`
-    : OVMSG[game.mode];
-  function selectSong(id) {
-    songSel = SONGS.find(x => x.id === id) || null;
-    try { localStorage.setItem('twindrop.song', songSel ? songSel.id : ''); } catch {}
-    document.querySelectorAll('#songs button').forEach(b => b.classList.toggle('sel', b.dataset.id === (songSel ? songSel.id : '')));
-    if (!game.running) {
-      musicWells.forEach(w => w.reset());
-      if (game.mode === 'music') $('ovMsg').textContent = ovMsg();
-    }
-  }
-  $('songs').innerHTML = [{ id: '', name: '🎲 Random' }, ...SONGS].map(x => `<button tabindex="-1" data-id="${x.id}">${x.name}</button>`).join('');
-  $('songs').addEventListener('mousedown', e => e.preventDefault());
-  $('songs').addEventListener('click', e => { const b = e.target.closest('button'); if (b && !game.running) selectSong(b.dataset.id); });
-  function cycleSong(d) {
-    const ids = ['', ...SONGS.map(x => x.id)], i = ids.indexOf(songSel ? songSel.id : '');
-    selectSong(ids[(i + d + ids.length) % ids.length]);
-  }
 
   function setMode(m) {
     game.mode = m;
@@ -680,12 +602,11 @@
     $('linesLabel').textContent = m === 'music' ? 'NOTES' : 'LINES';
     $('modeBlocks').classList.toggle('sel', m === 'blocks');
     $('modeMusic').classList.toggle('sel', m === 'music');
-    document.querySelector('.overlay').classList.toggle('music-ov', m === 'music');
     $('wellL').width = $('wellR').width = 280; // resets the canvas state, same size for both modes
     wells.forEach(w => w.reset(0));
     if (!game.running) {
       Object.assign(game, { score: 0, lines: 0, level: 1 });
-      $('ovMsg').textContent = ovMsg();
+      $('ovMsg').textContent = OVMSG[m];
       $('ovTitle').textContent = 'TWIN DROP';
     }
   }
@@ -707,14 +628,6 @@
     if (game.score > best()) { try { localStorage.setItem(bestKey(), game.score); } catch {} }
     const which = wells[0].dead && wells[1].dead ? 'Both wells' : wells[0].dead ? 'Left well' : 'Right well';
     showOverlay('GAME OVER', `${which} ${game.mode === 'music' ? 'filled up' : 'topped out'} — ${game.score} points, ${game.lines} lines.`, 'play again');
-  }
-
-  function finishSong() {
-    game.running = false; game.over = true;
-    const caught = musicWells.reduce((a, w) => a + w.caught, 0), total = musicWells.reduce((a, w) => a + w.total, 0);
-    game.score += caught * 5 * game.level; // bonus for finishing
-    if (game.score > best()) { try { localStorage.setItem(bestKey(), game.score); } catch {} }
-    showOverlay('SONG COMPLETE', `“${songSel.name}”: ${caught} of ${total} notes caught — ${game.score} points.`, 'play again');
   }
 
   function musicKey(e, isDown) {
@@ -740,9 +653,6 @@
       if (!game.running) start();
       else if (game.paused) { game.paused = false; $('overlay').classList.add('hidden'); }
       return;
-    }
-    if (!game.running && game.mode === 'music' && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
-      e.preventDefault(); cycleSong(e.code === 'ArrowLeft' ? -1 : 1); return;
     }
     if (!game.running && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Tab')) {
       e.preventDefault();
@@ -799,9 +709,7 @@
   }
   let saved = 'blocks';
   try { saved = localStorage.getItem('twindrop.mode') === 'music' ? 'music' : 'blocks'; } catch {}
-  try { songSel = SONGS.find(x => x.id === localStorage.getItem('twindrop.song')) || null; } catch {}
   setMode(saved);
-  selectSong(songSel ? songSel.id : '');
 
   let last = performance.now();
   function frame(now) {
@@ -810,7 +718,6 @@
     if (game.running && !game.paused) {
       wells.forEach(w => w.update(dt));
       if (wells.some(w => w.dead)) end();
-      else if (game.mode === 'music' && songSel && musicWells.every(w => w.songDone())) finishSong();
     }
     wells.forEach(w => w.render());
     $('score').textContent = game.score;
