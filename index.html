@@ -70,13 +70,9 @@
     border-radius: 6px; padding: 6px 14px; cursor: pointer;
   }
   .modes button.sel { color: var(--bg); background: var(--accent); border-color: var(--accent); }
-  .songs { flex-wrap: wrap; max-width: 560px; margin: 8px auto 0; visibility: hidden; }
-  .music-ov .songs { visibility: visible; }
-  .songs button { font-size: 14px; padding: 8px 12px; }
-  /* fixed-size menu so the buttons never shift when switching modes */
-  .overlay .box { width: min(600px, 94%); box-sizing: border-box; }
-  #ovMsg { min-height: 3em; }
-  #ovKeys { min-height: 7.4em; }
+  .songs { flex-wrap: wrap; max-width: 520px; margin: 6px auto 0; display: none; }
+  .music-ov .songs { display: flex; }
+  .songs button { font-size: 12px; padding: 4px 10px; }
   .overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(12, 13, 19, .78); border-radius: 8px; text-align: center;
@@ -656,7 +652,6 @@
   function selectSong(id) {
     songSel = SONGS.find(x => x.id === id) || null;
     try { localStorage.setItem('twindrop.song', songSel ? songSel.id : ''); } catch {}
-    $('ovTitle').textContent = 'TWIN DROP';
     document.querySelectorAll('#songs button').forEach(b => b.classList.toggle('sel', b.dataset.id === (songSel ? songSel.id : '')));
     if (!game.running) {
       musicWells.forEach(w => w.reset());
