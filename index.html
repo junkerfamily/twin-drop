@@ -156,7 +156,7 @@
     return out;
   };
 
-  const game = { mode: 'blocks', running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
+  const game = { mode: 'blocks', running: false, paused: false, over: false, demo: false, score: 0, lines: 0, level: 1 };
   const bestKey = () => game.mode === 'music' ? 'twindrop.best.music' + (songSel ? '.' + songSel.id : '') : 'twindrop.best';
   const best = () => { try { return +localStorage.getItem(bestKey()) || 0; } catch { return 0; } };
   const interval = () => Math.max(110, 760 - (game.level - 1) * 65);
@@ -639,7 +639,7 @@
   };
   const OVKEYS = {
     blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
-    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster<br><strong>T</strong> training mode (letters on the notes)<br>on this menu <strong>◀ ▶</strong> picks the song',
+    music: '<strong>A–G</strong> name the note &nbsp;·&nbsp; hold <strong>right ⇧</strong> for the right well<br><strong>◀ ▶</strong> pick a column &nbsp;·&nbsp; <strong>▼</strong> sink faster<br><strong>T</strong> training mode (letters on the notes) &nbsp;·&nbsp; <strong>D</strong> demo: the song plays itself<br>on this menu <strong>◀ ▶</strong> picks the song',
   };
   const OVMSG = {
     blocks: "Two wells. One brain. Either one tops out, it's over.",
@@ -695,8 +695,8 @@
     $('overlay').classList.remove('hidden');
   };
 
-  function start() {
-    Object.assign(game, { running: true, paused: false, over: false, score: 0, lines: 0, level: 1 });
+  function start(demo = false) {
+    Object.assign(game, { demo, running: true, paused: false, over: false, score: 0, lines: 0, level: 1 });
     wells[0].reset(0);
     wells[1].reset(interval() / 2); // stagger the two wells so they don't tick in unison
     shiftR = false;
@@ -711,6 +711,7 @@
 
   function finishSong() {
     game.running = false; game.over = true;
+    if (game.demo) { showOverlay('DEMO COMPLETE', `“${songSel.name}” played itself. Your turn?`, 'play it yourself'); return; }
     const caught = musicWells.reduce((a, w) => a + w.caught, 0), total = musicWells.reduce((a, w) => a + w.total, 0);
     game.score += caught * 5 * game.level; // bonus for finishing
     if (game.score > best()) { try { localStorage.setItem(bestKey(), game.score); } catch {} }
@@ -725,7 +726,7 @@
     if (el) el.classList.toggle('on', isDown);
     if (e.code === 'ShiftRight') { shiftR = isDown; return; }
     if (!isDown) { if (e.code === 'ArrowDown') musicWells.forEach(w => { w.soft = false; }); return; }
-    if (!game.running || game.paused) return;
+    if (!game.running || game.paused || game.demo) return;
     const w = musicWells[shiftR ? 1 : 0];
     if (e.code in NOTE_CODES) { if (!e.repeat) w.press(NOTE_CODES[e.code]); }
     else if (e.code === 'ArrowLeft') w.moveCol(-1);
@@ -740,6 +741,15 @@
       if (!game.running) start();
       else if (game.paused) { game.paused = false; $('overlay').classList.add('hidden'); }
       return;
+    }
+    if (!game.running && game.mode === 'music' && e.code === 'KeyD') { // D on the menu = demo
+      e.preventDefault();
+      if (!songSel) selectSong(SONGS[0].id);
+      start(true); return;
+    }
+    if (game.running && game.demo && e.code === 'Escape') { // stop the demo
+      game.running = false; game.over = true; musicWells.forEach(w => w.reset());
+      showOverlay('TWIN DROP', ovMsg(), 'start'); return;
     }
     if (!game.running && game.mode === 'music' && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
       e.preventDefault(); cycleSong(e.code === 'ArrowLeft' ? -1 : 1); return;
@@ -808,6 +818,9 @@
     const dt = Math.min(now - last, 100);
     last = now;
     if (game.running && !game.paused) {
+      if (game.demo) musicWells.forEach(w => { // autopilot: name each note a moment after it appears
+        if (w.piece && w.piece.age > 0.8) w.press(w.letterOf(w.piece.step));
+      });
       wells.forEach(w => w.update(dt));
       if (wells.some(w => w.dead)) end();
       else if (game.mode === 'music' && songSel && musicWells.every(w => w.songDone())) finishSong();
