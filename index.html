@@ -61,6 +61,8 @@
   #trainTag { display: none !important; margin: -6px 0; }
   .music.training #trainTag { display: block !important; }
   .music .nexts { display: none; }
+  #mult { color: var(--accent); }
+  .keys.locked .key { background: #3a1f28; border-color: #e2536b; opacity: .6; }
   .keys.sm { gap: 4px; }
   .keys.sm .key { width: 36px; }
   .keys.sm .key.wide { width: 74px; }
@@ -92,7 +94,7 @@
   <div class="hud">
     <h1>TWIN DROP</h1>
     <div class="tag" id="trainTag">TRAINING</div>
-    <div class="stat"><label>SCORE</label><div id="score">0</div></div>
+    <div class="stat"><label>SCORE <span id="mult"></span></label><div id="score">0</div></div>
     <div class="stat"><label id="linesLabel">LINES</label><div id="lines">0</div></div>
     <div class="stat"><label>LEVEL</label><div id="level">1</div></div>
     <div class="stat"><label>BEST</label><div id="best">0</div></div>
@@ -152,7 +154,7 @@
     return out;
   };
 
-  const game = { mode: 'blocks', running: false, paused: false, over: false, score: 0, lines: 0, level: 1 };
+  const game = { mode: 'blocks', running: false, paused: false, over: false, score: 0, lines: 0, level: 1, streak: 0, hits: 0, presses: 0 };
   const bestKey = () => game.mode === 'music' ? 'twindrop.best.music' : 'twindrop.best';
   const best = () => { try { return +localStorage.getItem(bestKey()) || 0; } catch { return 0; } };
   const interval = () => Math.max(110, 760 - (game.level - 1) * 65);
@@ -384,10 +386,14 @@
       o.start(t); o.stop(t + dur + 0.02);
     } catch {}
   };
+  const LOCK_MS = 500;       // a wrong key locks that well's letters this long
+  const STREAK_STEP = 5, MULT_CAP = 4; // every 5 correct in a row bumps the multiplier, up to x4
+  const mult = () => Math.min(MULT_CAP, 1 + Math.floor(game.streak / STREAK_STEP));
   const earn = pts => {
     game.score = Math.max(0, game.score + pts);
     if (pts > 0) { game.lines++; game.level = Math.floor(game.lines / 10) + 1; }
   };
+  const hit = pts => { game.hits++; earn(pts * mult()); game.streak++; };
 
   class MusicWell {
     // step 0 = bottom staff line; each +1 is a line/space up. -2 and 10 sit on ledger lines.
@@ -401,7 +407,7 @@
     reset() {
       this.grid = Array.from({ length: MROWS }, () => Array(MCOLS).fill(null));
       this.piece = null; this.wait = 0; this.soft = false; this.lastStep = null;
-      this.fx = []; this.dead = false;
+      this.fx = []; this.dead = false; this.lock = 0; this.aimCol = 2;
       this.sideEl.classList.remove('dead');
       this.spawn();
     }
@@ -421,6 +427,7 @@
       do { step = lo + Math.floor(Math.random() * (hi - lo + 1)); } while (step === this.lastStep);
       this.lastStep = step;
       this.piece = { col: free[Math.floor(Math.random() * free.length)], y: 0, age: 0, step };
+      this.aimCol = this.piece.col;
     }
     floorRow(col, from) {
       let r = from;
@@ -434,42 +441,46 @@
       if (nc < 0 || nc >= MCOLS) return;
       const r0 = Math.floor(p.y), r1 = Math.min(MROWS - 1, Math.ceil(p.y) + 0);
       for (let r = r0; r <= r1; r++) if (this.grid[r][nc]) return;
-      p.col = nc;
+      p.col = nc; this.aimCol = nc;
+    }
+    topRow(col) { // row of the top card in a pile, or -1 if the column is empty
+      for (let r = 0; r < MROWS; r++) if (this.grid[r][col]) return r;
+      return -1;
     }
     press(letter) {
-      if (this.dead) return;
+      if (this.dead || this.lock > 0) return; // locked out after a miss: keys do nothing
+      game.presses++;
       const p = this.piece;
       if (p && this.letterOf(p.step) === letter) {
         // live block: worth more the higher up you catch it
-        earn(Math.round((10 + (MROWS - p.y)) * game.level));
+        hit(Math.round((10 + (MROWS - p.y)) * game.level));
         this.fx.push({ x: p.col * MSZ + MSZ / 2, y: p.y * MSZ + MSZ / 2, text: letter, color: '#7ddc5a', t: 0 });
         tone(this.pitch(p.step));
         this.piece = null; this.wait = 180;
         return;
       }
-      // landed cards: only the one on top of each column can be peeled off
-      for (let r = 0; r < MROWS; r++)
-        for (let c = 0; c < MCOLS; c++) {
-          const cell = this.grid[r][c];
-          if (cell && (r === 0 || !this.grid[r - 1][c]) && this.letterOf(cell.step) === letter) {
-            earn(5 * game.level);
-            this.fx.push({ x: c * MSZ + MSZ / 2, y: r * MSZ + MSZ / 2, text: letter, color: '#ffb84a', t: 0 });
-            tone(this.pitch(cell.step), 0.45, 'triangle', 0.15);
-            for (let k = r; k > 0; k--) this.grid[k][c] = this.grid[k - 1][c];
-            this.grid[0][c] = null;
-            return;
-          }
-        }
-      // wrong guess: costs points and the live block jolts down a row
+      // landed cards: only the top of the pile under the falling note is in reach
+      const c = this.aimCol, r = this.topRow(c);
+      if (r >= 0 && this.letterOf(this.grid[r][c].step) === letter) {
+        hit(5 * game.level);
+        this.fx.push({ x: c * MSZ + MSZ / 2, y: r * MSZ + MSZ / 2, text: letter, color: '#ffb84a', t: 0 });
+        tone(this.pitch(this.grid[r][c].step), 0.45, 'triangle', 0.15);
+        this.grid[r][c] = null;
+        return;
+      }
+      // wrong guess: costs points, breaks the streak, jolts the live block and locks the keys briefly
+      game.streak = 0;
       earn(-10);
+      this.lock = LOCK_MS;
       tone(110, 0.18, 'sawtooth', 0.08);
       this.fx.push({ x: MCOLS * MSZ / 2, y: MROWS * MSZ / 2, text: letter, color: '#e2536b', t: 0, big: true });
-      if (p) p.y += 1;
+      if (p) p.y = Math.min(p.y + 1, this.floorRow(p.col, Math.floor(p.y)));
     }
     update(dt) {
       this.fx.forEach(f => f.t += dt);
       this.fx = this.fx.filter(f => f.t < 600);
       if (this.dead) return;
+      this.lock = Math.max(0, this.lock - dt);
       if (!this.piece) {
         this.wait -= dt;
         if (this.wait <= 0) this.spawn();
@@ -540,12 +551,21 @@
       for (let r = 0; r < MROWS; r++)
         for (let c = 0; c < MCOLS; c++)
           if (this.grid[r][c]) this.card(ctx, c * MSZ, r * MSZ, this.grid[r][c].step, { alpha: fade * (r > 0 && this.grid[r - 1][c] ? 0.55 : 1) });
+      const tr = this.topRow(this.aimCol);
+      if (tr >= 0 && !this.dead) { // the one stacked card your keys can reach right now
+        ctx.strokeStyle = 'rgba(255,184,74,.6)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.roundRect(this.aimCol * MSZ + 2, tr * MSZ + 2, MSZ - 4, MSZ - 4, 6); ctx.stroke();
+      }
       if (p && !this.dead) this.card(ctx, p.col * MSZ, p.y * MSZ, p.step, { active: true });
       ctx.font = 'bold 22px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       for (const f of this.fx) {
         const k = f.t / 600;
         ctx.globalAlpha = 1 - k; ctx.fillStyle = f.color;
         ctx.fillText(f.text, f.x, f.y - k * 24);
+      }
+      if (this.lock > 0) {
+        ctx.globalAlpha = 0.18 * this.lock / LOCK_MS; ctx.fillStyle = '#e2536b';
+        ctx.fillRect(0, 0, MCOLS * MSZ, MROWS * MSZ);
       }
       ctx.globalAlpha = 1;
     }
@@ -577,7 +597,7 @@
   };
   const HELP = {
     blocks: 'hold rotate, or<br>hold F / ;<br>= fast drop<br><br>hold left + tap rotate<br>= rotate the other way<br><br>P pause',
-    music: 'type the note name<br>before it lands<br><br>T = training<br>(letters on notes)<br><br>wrong key = −10<br>and the block jolts<br><br>stacked notes: only the<br>top of a pile can be<br>peeled off<br><br>letters play the left well;<br>hold right ⇧ for the right<br>(arrows follow too)<br><br>P pause',
+    music: 'name the note<br>before it lands<br><br>miss = −10, jolt,<br>keys lock ½ s<br><br>5 in a row = ×2<br>(max ×4)<br><br>only the outlined<br>card under the<br>falling note peels<br><br>right ⇧ = right well<br>T training · P pause',
   };
   const OVKEYS = {
     blocks: '<strong>A S D F</strong> left well &nbsp;·&nbsp; <strong>J K L ;</strong> right well',
@@ -605,7 +625,7 @@
     $('wellL').width = $('wellR').width = 280; // resets the canvas state, same size for both modes
     wells.forEach(w => w.reset(0));
     if (!game.running) {
-      Object.assign(game, { score: 0, lines: 0, level: 1 });
+      Object.assign(game, { score: 0, lines: 0, level: 1, streak: 0, hits: 0, presses: 0 });
       $('ovMsg').textContent = OVMSG[m];
       $('ovTitle').textContent = 'TWIN DROP';
     }
@@ -617,7 +637,7 @@
   };
 
   function start() {
-    Object.assign(game, { running: true, paused: false, over: false, score: 0, lines: 0, level: 1 });
+    Object.assign(game, { running: true, paused: false, over: false, score: 0, lines: 0, level: 1, streak: 0, hits: 0, presses: 0 });
     wells[0].reset(0);
     wells[1].reset(interval() / 2); // stagger the two wells so they don't tick in unison
     shiftR = false;
@@ -627,7 +647,10 @@
     game.running = false; game.over = true;
     if (game.score > best()) { try { localStorage.setItem(bestKey(), game.score); } catch {} }
     const which = wells[0].dead && wells[1].dead ? 'Both wells' : wells[0].dead ? 'Left well' : 'Right well';
-    showOverlay('GAME OVER', `${which} ${game.mode === 'music' ? 'filled up' : 'topped out'} — ${game.score} points, ${game.lines} lines.`, 'play again');
+    const tail = game.mode === 'music'
+      ? `${game.hits}/${game.presses} keys right (${game.presses ? Math.round(100 * game.hits / game.presses) : 0}%).`
+      : `${game.lines} lines.`;
+    showOverlay('GAME OVER', `${which} ${game.mode === 'music' ? 'filled up' : 'topped out'} — ${game.score} points, ${tail}`, 'play again');
   }
 
   function musicKey(e, isDown) {
@@ -723,6 +746,9 @@
     $('score').textContent = game.score;
     $('lines').textContent = game.lines;
     $('level').textContent = game.level;
+    const m = game.mode === 'music' && game.running ? mult() : 1;
+    $('mult').textContent = m > 1 ? '×' + m : '';
+    $('keysL').classList.toggle('locked', game.mode === 'music' && musicWells[shiftR ? 1 : 0].lock > 0);
     $('best').textContent = Math.max(best(), game.score);
     requestAnimationFrame(frame);
   }
